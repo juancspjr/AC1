@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useLog } from '../context/LogContext';
 
-// Hook para integración directa con Gemini API con debugging completo
+// Hook para integración directa con Gemini API con debugging completo y manejo de errores
 export const useGeminiApi = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -27,8 +27,7 @@ export const useGeminiApi = () => {
       length: apiKeyStatus.length,
       format: apiKeyStatus.format,
       placeholder: apiKeyStatus.placeholder,
-      firstChars: apiKey ? `${apiKey.substring(0, 8)}...` : 'N/A',
-      file: 'Verificar archivo .env en raíz del proyecto'
+      firstChars: apiKey ? `${apiKey.substring(0, 8)}...` : 'N/A'
     });
     
     if (!apiKey || apiKey.trim() === '' || apiKey === 'tu_gemini_api_key' || apiKey === 'AIza...') {
@@ -38,8 +37,7 @@ export const useGeminiApi = () => {
         archivo: '.env (en la raíz del proyecto)',
         variable: 'REACT_APP_GEMINI_API_KEY',
         formato: 'REACT_APP_GEMINI_API_KEY="AIzaSy..."',
-        obtencion: 'https://makersuite.google.com/app/apikey',
-        solucion: 'Crea/actualiza el archivo .env con tu API Key real'
+        obtencion: 'https://makersuite.google.com/app/apikey'
       };
       addLog('error', errorMsg, errorDetails);
       throw new Error(errorMsg);
@@ -49,30 +47,32 @@ export const useGeminiApi = () => {
       const errorMsg = '❌ API Key parece inválida (muy corta)';
       addLog('error', errorMsg, {
         longitud: apiKey.length,
-        esperada: 'Entre 35-45 caracteres',
-        formato: 'Debe empezar con "AIza"'
+        esperada: 'Entre 35-45 caracteres'
       });
       throw new Error(errorMsg);
     }
 
     // Validar modelo
-    const validModels = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro', 'gemini-flash'];
+    const validModels = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro'];
     addLog('info', `🤖 Modelo configurado: ${model}`, {
       esValido: validModels.includes(model),
-      modelosDisponibles: validModels,
-      recomendado: 'gemini-1.5-flash'
+      modelosDisponibles: validModels
     });
 
     setIsLoading(true);
     setError(null);
     addLog('success', `✅ Configuración válida - Iniciando llamada a ${model}`);
-    addLog('info', `📝 Prompt enviado (${prompt.length} caracteres)`, {
-      preview: `${prompt.substring(0, 100)}${prompt.length > 100 ? '...' : ''}`,
-      longitudTotal: prompt.length
-    });
 
     try {
-      // === PREPARAR REQUEST ===
+      // === DEFINIR ENDPOINT CORRECTAMENTE ===
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      
+      addLog('info', '📝 Preparando prompt...', {
+        longitudPrompt: prompt.length,
+        preview: `${prompt.substring(0, 100)}${prompt.length > 100 ? '...' : ''}`
+      });
+
+      // === PREPARAR REQUEST CON LÍMITES OPTIMIZADOS ===
       const requestBody = {
         contents: [{
           parts: [{ text: prompt }]
@@ -81,7 +81,7 @@ export const useGeminiApi = () => {
           temperature: options.temperature || 0.7,
           topK: options.topK || 40,
           topP: options.topP || 0.95,
-          maxOutputTokens: options.maxOutputTokens || 2048,
+          maxOutputTokens: options.maxOutputTokens || 200, // Reducido para evitar MAX_TOKENS
         },
         safetySettings: [
           {
@@ -103,12 +103,10 @@ export const useGeminiApi = () => {
         ]
       };
 
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
       addLog('info', '🌐 Enviando request a Google Gemini API...', {
         endpoint: endpoint.replace(apiKey, 'KEY_OCULTA'),
         modelo: model,
-        configuracion: requestBody.generationConfig,
-        seguridad: 'Filtros activados'
+        maxTokens: requestBody.generationConfig.maxOutputTokens
       });
       
       // === HACER LLAMADA A API ===
@@ -124,10 +122,6 @@ export const useGeminiApi = () => {
       addLog('info', `📡 Respuesta HTTP recibida en ${responseTime}ms`, {
         status: response.status,
         statusText: response.statusText,
-        headers: {
-          contentType: response.headers.get('content-type'),
-          contentLength: response.headers.get('content-length')
-        },
         tiempoRespuesta: `${responseTime}ms`
       });
 
@@ -144,14 +138,7 @@ export const useGeminiApi = () => {
           codigoHTTP: response.status,
           mensaje: response.statusText,
           respuestaCompleta: errorData,
-          endpoint: endpoint.replace(apiKey, 'KEY_OCULTA'),
-          posiblesSoluciones: {
-            400: 'Modelo inválido o request malformado',
-            401: 'API Key inválida o expirada',
-            403: 'API Key sin permisos o cuota excedida',
-            429: 'Rate limit excedido - espera un momento',
-            500: 'Error interno de Google - intenta más tarde'
-          }[response.status] || 'Error desconocido'
+          endpoint: endpoint.replace(apiKey, 'KEY_OCULTA')
         });
         
         if (response.status === 400) {
@@ -169,7 +156,6 @@ export const useGeminiApi = () => {
       const data = await response.json();
       addLog('success', '🎉 Respuesta JSON válida recibida de Gemini');
       addLog('info', '📊 Analizando respuesta de Gemini...', {
-        estructuraCompleta: data,
         candidatos: data.candidates?.length || 0,
         metadataUso: data.usageMetadata || 'No disponible'
       });
@@ -181,29 +167,44 @@ export const useGeminiApi = () => {
           posiblesCausas: [
             'Prompt bloqueado por filtros de seguridad',
             'Modelo sobrecargado temporalmente',
-            'Request malformado',
-            'Límites de contenido excedidos'
+            'Request malformado'
           ]
         });
         throw new Error('❌ Gemini no retornó candidatos de respuesta');
       }
 
       const candidate = data.candidates[0];
-      addLog('info', '🔍 Validando candidato de respuesta...', {
-        finishReason: candidate.finishReason,
-        safetyRatings: candidate.safetyRatings,
-        tieneContenido: !!(candidate.content && candidate.content.parts)
-      });
+      
+      // === MANEJAR MAX_TOKENS ESPECÍFICAMENTE ===
+      if (candidate.finishReason === 'MAX_TOKENS') {
+        addLog('warning', '⚠️ Respuesta cortada por límite de tokens', {
+          finishReason: candidate.finishReason,
+          tokensUsados: data.usageMetadata,
+          sugerencia: 'Reintentando con prompt más corto...'
+        });
+        
+        // Reintentar con prompt más corto
+        if (prompt.length > 200) {
+          const shorterPrompt = prompt.substring(0, 150) + '...';
+          addLog('info', '🔄 Reintentando con prompt más corto...');
+          return await callGemini(shorterPrompt, { 
+            ...options, 
+            maxOutputTokens: 150 
+          });
+        } else {
+          throw new Error('⚠️ Respuesta cortada por límite de tokens. Prompt ya es corto.');
+        }
+      }
       
       if (candidate.finishReason === 'SAFETY') {
         addLog('warning', '⚠️ Respuesta bloqueada por filtros de seguridad de Google', {
           razon: candidate.finishReason,
-          safetyRatings: candidate.safetyRatings,
-          sugerencia: 'Intenta con un prompt más neutro o específico'
+          safetyRatings: candidate.safetyRatings
         });
         throw new Error('⚠️ Contenido bloqueado por filtros de seguridad de Gemini');
       }
 
+      // === VALIDAR ESTRUCTURA PARTS ===
       if (!candidate.content || !candidate.content.parts || candidate.content.parts.length === 0) {
         addLog('error', '❌ Estructura de respuesta de Gemini malformada', {
           candidatoCompleto: candidate,
@@ -222,17 +223,20 @@ export const useGeminiApi = () => {
       const generatedText = candidate.content.parts[0].text;
       const finalTime = Date.now() - startTime;
       
+      if (!generatedText || generatedText.trim() === '') {
+        addLog('error', '❌ Texto generado está vacío', {
+          candidatoCompleto: candidate,
+          partsContent: candidate.content.parts[0]
+        });
+        throw new Error('❌ Gemini retornó texto vacío');
+      }
+      
       addLog('success', `🎉 ¡Texto generado exitosamente en ${finalTime}ms!`, {
         longitudTexto: generatedText.length,
         tiempoTotal: `${finalTime}ms`,
         finishReason: candidate.finishReason,
-        usageMetadata: data.usageMetadata,
-        preview: `${generatedText.substring(0, 150)}${generatedText.length > 150 ? '...' : ''}`,
-        caracteristicas: {
-          palabras: generatedText.split(' ').length,
-          lineas: generatedText.split('\n').length,
-          caracteres: generatedText.length
-        }
+        preview: `${generatedText.substring(0, 100)}${generatedText.length > 100 ? '...' : ''}`,
+        palabras: generatedText.split(' ').length
       });
       
       return {
@@ -248,19 +252,12 @@ export const useGeminiApi = () => {
       const errorMessage = err.message || 'Error desconocido al llamar Gemini';
       
       addLog('error', `🔴 Error final después de ${finalTime}ms: ${errorMessage}`, {
-        errorCompleto: err,
-        stackTrace: err.stack,
+        errorCompleto: err.toString(),
         tiempoTranscurrido: `${finalTime}ms`,
         configuracionUsada: {
           modelo: model,
           apiKeyLength: apiKey?.length,
-          endpoint: endpoint?.replace(apiKey, 'KEY_OCULTA')
-        },
-        debugging: {
-          verificarEnv: 'Revisar archivo .env en raíz del proyecto',
-          verificarModelo: `Modelo '${model}' debe ser válido`,
-          verificarApiKey: 'API Key debe empezar con AIza y tener 35+ chars',
-          verificarRed: 'Conexión a internet y firewall'
+          endpointUsado: 'Definido correctamente'
         }
       });
       
@@ -274,29 +271,14 @@ export const useGeminiApi = () => {
 
   // Función específica para mejorar ideas narrativas
   const improveIdea = useCallback(async (idea, context = {}) => {
-    const prompt = `
-Como experto en narrativa y storytelling, mejora la siguiente idea para hacerla más atractiva, clara y estructurada:
-
-Idea original: "${idea}"
-
-${context.projectType ? `Tipo de proyecto: ${context.projectType}` : ''}
-${context.targetAudience ? `Público objetivo: ${context.targetAudience}` : ''}
-${context.keyElements ? `Elementos clave: ${context.keyElements}` : ''}
-
-Proporciona una versión mejorada que:
-1. Sea más específica y concreta
-2. Tenga mayor potencial narrativo
-3. Incluya elementos que generen interés
-4. Mantenga la esencia original
-5. Sea adecuada para el formato y audiencia especificados
-
-Respuesta (máximo 200 palabras):`;
+    // Prompt optimizado y más corto para evitar MAX_TOKENS
+    const prompt = `Mejora esta idea narrativa: "${idea}"\n\nDevuélvela en 2 partes separadas por <break>:\n1. Versión mejorada (máximo 40 palabras)\n2. Elementos clave (lista breve)\n\n${context.targetAudience ? `Audiencia: ${context.targetAudience}` : ''}`;
 
     try {
       addLog('info', '📝 Iniciando mejora de idea narrativa con Gemini...');
       const result = await callGemini(prompt, {
         temperature: 0.8,
-        maxOutputTokens: 300
+        maxOutputTokens: 200
       });
       
       addLog('success', '✨ Idea mejorada exitosamente');
@@ -318,16 +300,16 @@ Respuesta (máximo 200 palabras):`;
   // Función para sugerir elementos adicionales
   const suggestElements = useCallback(async (idea, type = 'narrative') => {
     const prompts = {
-      narrative: `Basándote en esta idea: "${idea}", sugiere 5 elementos narrativos clave (temas, conflictos, símbolos) que enriquecerían la historia.`,
-      characters: `Para esta historia: "${idea}", sugiere 3 tipos de personajes principales que serían ideales.`,
-      settings: `Considerando esta narrativa: "${idea}", sugiere 3 escenarios o ambientaciones que complementarían la historia.`
+      narrative: `Basándote en: "${idea}", sugiere 5 elementos narrativos clave (temas, conflictos, símbolos).`,
+      characters: `Para: "${idea}", sugiere 3 tipos de personajes principales.`,
+      settings: `Para: "${idea}", sugiere 3 escenarios ideales.`
     };
 
     try {
       addLog('info', `🎭 Generando sugerencias de ${type}...`);
       const result = await callGemini(prompts[type] || prompts.narrative, {
         temperature: 0.9,
-        maxOutputTokens: 200
+        maxOutputTokens: 150
       });
       
       return result.text.trim();
