@@ -5,11 +5,11 @@
 
 @layer base {
   * {
-    @apply border-border;
+    @apply border-gray-200;
   }
   
   body {
-    @apply bg-background text-foreground font-[Inter];
+    @apply bg-gray-50 text-gray-900 font-[Inter];
     font-feature-settings: "cv11", "cv02", "cv03", "cv04", "cv09";
   }
 
@@ -44,6 +44,23 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
+  
+  /* Componentes base personalizados */
+  .btn-primary {
+    @apply bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200;
+  }
+  
+  .btn-secondary {
+    @apply bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-lg transition-colors duration-200;
+  }
+  
+  .input-field {
+    @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent;
+  }
+  
+  .card {
+    @apply bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden;
+  }
 }
 
 @keyframes slideInRight {
@@ -77,6 +94,7 @@
   }
 }
 
+/* Scroll personalizado */
 ::-webkit-scrollbar {
   width: 8px;
 }
@@ -92,4 +110,29 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
+}
+
+/* Estados responsive */
+@media (max-width: 640px) {
+  .mobile-full {
+    @apply w-full;
+  }
+  
+  .mobile-hidden {
+    @apply hidden;
+  }
+}
+
+/* Estados de hover mejorados */
+.hover-lift {
+  @apply transition-transform duration-200;
+}
+
+.hover-lift:hover {
+  @apply transform -translate-y-1;
+}
+
+/* Efectos de enfoque mejorados */
+.focus-ring {
+  @apply focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2;
 }
