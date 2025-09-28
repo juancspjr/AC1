@@ -70,11 +70,16 @@ const Phase1 = () => {
           addLog('info', 'Generando sugerencias de elementos narrativos...');
           const suggestions = await suggestElements(result.improvedIdea, 'narrative');
           
-          // Extraer elementos sugeridos (asumiendo formato de lista)
-          const extractedElements = suggestions
-            .split('\n')
-            .filter(line => line.trim() && (line.includes('-') || line.includes('\u2022') || line.match(/^\d+\./))
-            .map(line => line.replace(/^[-\u2022\d\.\s]+/, '').trim())
+          // Extraer elementos sugeridos de forma segura
+          const lines = suggestions.split('\n');
+          const filteredLines = lines.filter(line => {
+            const trimmed = line.trim();
+            return trimmed && (trimmed.includes('-') || trimmed.includes('•') || /^\d+\./.test(trimmed));
+          });
+          
+          const extractedElements = filteredLines
+            .map(line => line.replace(/^[-•\d\.\s]+/, '').trim())
+            .filter(Boolean)
             .slice(0, 5)
             .join(', ');
             
