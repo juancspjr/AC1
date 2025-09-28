@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 
 // Contexto para el sistema de logs global
 const LogContext = createContext();
@@ -13,47 +13,99 @@ export const useLog = () => {
 
 export const LogProvider = ({ children }) => {
   const [logs, setLogs] = useState([]);
+  const [stickyErrors, setStickyErrors] = useState([]); // Errores que persisten
   const [isVisible, setIsVisible] = useState(true);
   const [isPaused, setIsPaused] = useState(false);
-  const [pendingLogs, setPendingLogs] = useState([]);
+  const [lastLogTime, setLastLogTime] = useState(0);
+
+  // Auto-limpieza de logs normales cada 15 segundos
+  useEffect(() => {
+    const cleanup = setInterval(() => {
+      if (!isPaused) {
+        setLogs(prev => {
+          // Solo mantener logs de los últimos 15 segundos o los importantes
+          const cutoff = Date.now() - 15000;
+          return prev.filter(log => 
+            log.timestamp.getTime() > cutoff || 
+            log.type === 'error' || 
+            log.type === 'warning'
+          ).slice(-20); // Máximo 20 logs normales
+        });
+      }
+    }, 15000);
+
+    return () => clearInterval(cleanup);
+  }, [isPaused]);
+
+  // Prevenir spam de logs similares
+  const shouldLog = useCallback((type, message) => {
+    const now = Date.now();
+    const timeDiff = now - lastLogTime;
+    
+    // Siempre permitir errores y warnings
+    if (type === 'error' || type === 'warning') return true;
+    
+    // Para otros tipos, evitar spam (menos de 100ms entre logs)
+    if (timeDiff < 100) return false;
+    
+    setLastLogTime(now);
+    return true;
+  }, [lastLogTime]);
 
   const addLog = useCallback((type, message, details = null) => {
+    // Filtrar logs de micro-eventos
+    if (!shouldLog(type, message)) return;
+    
     const newLog = {
       id: Date.now() + Math.random(),
-      type, // 'info', 'success', 'warning', 'error'
+      type,
       message,
       details,
       timestamp: new Date(),
-      persistent: type === 'error' || type === 'warning' // Errores y warnings persisten más tiempo
+      isUserAction: type === 'error' || message.includes('Usuario') || message.includes('Clic') || message.includes('API')
     };
 
-    if (isPaused) {
-      // Si está pausado, guardamos en buffer
-      setPendingLogs(prev => [...prev, newLog]);
-      return;
+    if (isPaused && type !== 'error') {
+      return; // No agregar logs normales si está pausado
     }
 
+    // Errores van a lista persistente
+    if (type === 'error') {
+      setStickyErrors(prev => {
+        // Evitar duplicados exactos
+        const exists = prev.find(err => err.message === message && err.type === type);
+        if (exists) return prev;
+        
+        return [...prev, newLog].slice(-10); // Máximo 10 errores sticky
+      });
+    }
+
+    // Logs normales
     setLogs(prevLogs => {
-      // Para errores y warnings, mantenemos más tiempo
-      const maxLogs = newLog.persistent ? 200 : 100;
-      const updatedLogs = [...prevLogs, newLog].slice(-maxLogs);
-      return updatedLogs;
+      // Evitar duplicados recientes
+      const recent = prevLogs.filter(log => 
+        Date.now() - log.timestamp.getTime() < 1000
+      );
+      
+      const isDuplicate = recent.find(log => 
+        log.message === message && log.type === type
+      );
+      
+      if (isDuplicate && type !== 'error') return prevLogs;
+      
+      return [...prevLogs, newLog].slice(-25);
     });
+  }, [isPaused, shouldLog]);
 
-    // Auto-scroll solo si no hay errores recientes
-    if (type !== 'error' && type !== 'warning') {
-      setTimeout(() => {
-        const logPanel = document.getElementById('log-panel-content');
-        if (logPanel) {
-          logPanel.scrollTop = logPanel.scrollHeight;
-        }
-      }, 100);
-    }
-  }, [isPaused]);
+  // Limpiar solo errores sticky
+  const clearStickyErrors = useCallback(() => {
+    setStickyErrors([]);
+  }, []);
 
+  // Limpiar todos los logs
   const clearLogs = useCallback(() => {
     setLogs([]);
-    setPendingLogs([]);
+    setStickyErrors([]);
   }, []);
 
   const toggleVisibility = useCallback(() => {
@@ -61,39 +113,22 @@ export const LogProvider = ({ children }) => {
   }, []);
 
   const togglePause = useCallback(() => {
-    setIsPaused(prev => {
-      const newPaused = !prev;
-      if (!newPaused && pendingLogs.length > 0) {
-        // Al reanudar, procesamos logs pendientes
-        setLogs(prevLogs => {
-          const combined = [...prevLogs, ...pendingLogs];
-          return combined.slice(-200); // Más espacio para recuperar logs
-        });
-        setPendingLogs([]);
-      }
-      return newPaused;
-    });
-  }, [pendingLogs]);
+    setIsPaused(prev => !prev);
+  }, []);
 
-  // Función para destacar errores importantes
-  const addPersistentError = useCallback((message, details = null) => {
-    addLog('error', message, details);
-    // Forzamos visibilidad si hay error crítico
-    if (!isVisible) {
-      setIsVisible(true);
-    }
-  }, [addLog, isVisible]);
+  // Combinar logs normales y sticky errors para mostrar
+  const allLogs = [...logs, ...stickyErrors].sort((a, b) => a.timestamp - b.timestamp);
 
   const value = {
-    logs,
+    logs: allLogs,
+    stickyErrorsCount: stickyErrors.length,
     addLog,
-    addPersistentError,
     clearLogs,
+    clearStickyErrors,
     isVisible,
     toggleVisibility,
     isPaused,
-    togglePause,
-    pendingLogsCount: pendingLogs.length
+    togglePause
   };
 
   return (
