@@ -1,17 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Lightbulb, Target, Key, ArrowRight, Wand2 } from 'lucide-react';
+import { Sparkles, Lightbulb, Target, Key, ArrowRight, Wand2, RefreshCw } from 'lucide-react';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import TextArea from '../components/ui/TextArea';
 import Input from '../components/ui/Input';
 import { useProject } from '../hooks/useProject';
-import { useN8nApi } from '../hooks/useN8nApi';
+import { useGeminiApi } from '../hooks/useGeminiApi';
+import { useLog } from '../context/LogContext';
 import { useNavigate } from 'react-router-dom';
 
 const Phase1 = () => {
   const navigate = useNavigate();
   const { currentProject, updatePhase1, setCurrentPhase } = useProject();
-  const { generateWithAI, isLoading } = useN8nApi();
+  const { improveIdea, suggestElements, isLoading, error } = useGeminiApi();
+  const { addLog } = useLog();
   
   const [formData, setFormData] = useState({
     idea: '',
@@ -21,50 +23,111 @@ const Phase1 = () => {
   });
   
   const [showImprovement, setShowImprovement] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   
   useEffect(() => {
     setCurrentPhase(1);
+    addLog('info', 'Iniciando Fase 1: La Idea Principal');
     
     // Cargar datos existentes si es continuación o serie
     if (currentProject?.phase1Data) {
       setFormData(currentProject.phase1Data);
       setShowImprovement(!!currentProject.phase1Data.improvedIdea);
+      addLog('info', 'Datos existentes cargados para continuación de proyecto');
     }
-  }, [currentProject, setCurrentPhase]);
+  }, [currentProject, setCurrentPhase, addLog]);
   
   const handleGenerateWithAI = async () => {
-    if (!formData.idea.trim()) return;
+    if (!formData.idea.trim()) {
+      addLog('warning', 'No se puede generar sin una idea base');
+      return;
+    }
+    
+    setIsGenerating(true);
+    addLog('info', 'Iniciando mejora de idea con Gemini Flash...');
     
     try {
-      const result = await generateWithAI('phase1', {
-        idea: formData.idea,
+      const context = {
         projectType: currentProject?.type,
+        targetAudience: formData.targetAudience,
+        keyElements: formData.keyElements,
         parentContext: currentProject?.parentContext
-      });
+      };
+      
+      const result = await improveIdea(formData.idea, context);
       
       setFormData(prev => ({
         ...prev,
-        improvedIdea: result.improvedIdea || 'Versión mejorada de tu idea con mayor claridad narrativa y elementos estructurados.',
-        targetAudience: result.suggestedAudience || prev.targetAudience,
-        keyElements: result.suggestedElements || prev.keyElements
+        improvedIdea: result.improvedIdea
       }));
       
       setShowImprovement(true);
-    } catch (error) {
-      console.error('Error generating with AI:', error);
-      // Fallback en caso de error
+      addLog('success', 'Idea mejorada exitosamente con Gemini');
+      
+      // Opcionalmente sugerir elementos adicionales
+      if (!formData.keyElements.trim()) {
+        try {
+          addLog('info', 'Generando sugerencias de elementos narrativos...');
+          const suggestions = await suggestElements(result.improvedIdea, 'narrative');
+          
+          // Extraer elementos sugeridos (asumiendo formato de lista)
+          const extractedElements = suggestions
+            .split('\n')
+            .filter(line => line.trim() && (line.includes('-') || line.includes('\u2022') || line.match(/^\d+\./))
+            .map(line => line.replace(/^[-\u2022\d\.\s]+/, '').trim())
+            .slice(0, 5)
+            .join(', ');
+            
+          if (extractedElements) {
+            setFormData(prev => ({
+              ...prev,
+              keyElements: extractedElements
+            }));
+            addLog('success', 'Elementos narrativos sugeridos automáticamente');
+          }
+        } catch (suggestionError) {
+          addLog('warning', 'No se pudieron generar sugerencias adicionales');
+        }
+      }
+      
+    } catch (err) {
+      addLog('error', 'Error al mejorar idea con IA', err.message);
+      // Fallback con mensaje informativo
       setFormData(prev => ({
         ...prev,
-        improvedIdea: 'Versión mejorada de tu idea con mayor claridad narrativa y elementos estructurados. (Modo offline)',
+        improvedIdea: `Error: ${err.message}. Verifica tu API Key de Gemini en el archivo .env`
       }));
       setShowImprovement(true);
+    } finally {
+      setIsGenerating(false);
     }
   };
   
+  const handleUseImprovedIdea = () => {
+    setFormData(prev => ({ ...prev, idea: prev.improvedIdea }));
+    setShowImprovement(false);
+    addLog('info', 'Idea mejorada aplicada como idea principal');
+  };
+  
+  const handleGenerateAnother = () => {
+    addLog('info', 'Generando nueva versión de la idea...');
+    handleGenerateWithAI();
+  };
+  
   const handleContinue = () => {
-    if (!formData.idea.trim()) return;
+    if (!formData.idea.trim()) {
+      addLog('warning', 'No se puede continuar sin una idea principal');
+      return;
+    }
     
-    updatePhase1(formData);
+    const phase1Data = {
+      ...formData,
+      timestamp: new Date().toISOString(),
+      usedAI: showImprovement
+    };
+    
+    updatePhase1(phase1Data);
+    addLog('success', 'Fase 1 completada, avanzando a Fase 2');
     navigate('/phase-2');
   };
   
@@ -77,7 +140,7 @@ const Phase1 = () => {
         </div>
         <h1 className="text-3xl font-bold text-gray-900 mb-4">Fase 1: La Idea Principal</h1>
         <p className="text-lg text-gray-600">
-          Comparte tu idea inicial. La IA te ayudará a refinarla y desarrollarla.
+          Comparte tu idea inicial. Gemini Flash te ayudará a refinarla y desarrollarla.
         </p>
       </div>
       
@@ -105,14 +168,20 @@ const Phase1 = () => {
             <Button
               variant="ai"
               size="lg"
-              leftIcon={<Wand2 className="w-5 h-5" />}
+              leftIcon={isGenerating ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Wand2 className="w-5 h-5" />}
               onClick={handleGenerateWithAI}
-              disabled={!formData.idea.trim() || isLoading}
-              loading={isLoading}
+              disabled={!formData.idea.trim() || isGenerating}
+              loading={isGenerating}
               className="w-full sm:w-auto"
             >
-              {isLoading ? 'Generando con IA...' : 'Mejorar con IA'}
+              {isGenerating ? 'Generando con Gemini Flash...' : 'Mejorar con IA'}
             </Button>
+            
+            {error && (
+              <div className="mt-2 text-sm text-red-600 bg-red-50 p-2 rounded">
+                Error: {error}
+              </div>
+            )}
           </div>
         </div>
         
@@ -121,25 +190,34 @@ const Phase1 = () => {
           <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-xl p-6">
             <h3 className="font-semibold text-purple-900 mb-3 flex items-center">
               <Sparkles className="w-5 h-5 mr-2" />
-              Versión Mejorada por IA
+              Versión Mejorada por Gemini Flash
             </h3>
             <div className="bg-white rounded-lg p-4 border border-purple-100">
-              <p className="text-gray-800 leading-relaxed">{formData.improvedIdea}</p>
+              <p className="text-gray-800 leading-relaxed whitespace-pre-wrap">{formData.improvedIdea}</p>
             </div>
-            <div className="mt-4 flex space-x-3">
+            <div className="mt-4 flex flex-wrap gap-3">
               <Button 
                 variant="outline" 
                 size="sm"
-                onClick={() => setFormData(prev => ({ ...prev, idea: prev.improvedIdea }))}
+                onClick={handleUseImprovedIdea}
               >
                 Usar esta versión
               </Button>
               <Button 
                 variant="ghost" 
                 size="sm"
-                onClick={handleGenerateWithAI}
+                onClick={handleGenerateAnother}
+                disabled={isGenerating}
+                leftIcon={isGenerating ? <RefreshCw className="w-4 h-4 animate-spin" /> : null}
               >
-                Generar otra versión
+                {isGenerating ? 'Generando...' : 'Generar otra versión'}
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={() => setShowImprovement(false)}
+              >
+                Cerrar
               </Button>
             </div>
           </div>
@@ -173,7 +251,7 @@ const Phase1 = () => {
               onChange={(e) => setFormData(prev => ({ ...prev, keyElements: e.target.value }))}
               placeholder="Ej: memoria, identidad, tecnología, traición"
             />
-            <p className="text-xs text-gray-500 mt-1">Separados por comas</p>
+            <p className="text-xs text-gray-500 mt-1">Separados por comas. Se auto-completan con IA si están vacíos.</p>
           </div>
         </div>
       </Card>
