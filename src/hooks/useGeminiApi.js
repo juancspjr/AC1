@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useLog } from '../context/LogContext';
 
-// Hook para integración directa con Gemini API
+// Hook para integración directa con Gemini API con debugging completo
 export const useGeminiApi = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -10,30 +10,69 @@ export const useGeminiApi = () => {
   const callGemini = useCallback(async (prompt, options = {}) => {
     const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
     const model = process.env.REACT_APP_GEMINI_MODEL || 'gemini-1.5-flash';
+    const startTime = Date.now();
 
-    addLog('info', `Verificando configuración...`);
-    addLog('info', `API Key detectada: ${apiKey ? 'SÍ ✅' : 'NO ❌'}`);
-    addLog('info', `Modelo configurado: ${model}`);
+    // === VALIDACIÓN COMPLETA DE CONFIGURACIÓN ===
+    addLog('info', '🔍 Iniciando validación de configuración Gemini...');
     
-    if (!apiKey || apiKey.trim() === '' || apiKey === 'tu_gemini_api_key') {
-      const errorMsg = 'API Key de Gemini no configurada en .env. Verifica que REACT_APP_GEMINI_API_KEY esté en tu archivo .env';
-      addLog('error', errorMsg);
-      addLog('warning', 'Asegúrate de que tu archivo .env contenga: REACT_APP_GEMINI_API_KEY="AIzaSy..."');
+    // Validar API Key
+    const apiKeyStatus = {
+      exists: !!apiKey,
+      length: apiKey ? apiKey.length : 0,
+      format: apiKey ? (apiKey.startsWith('AIza') ? 'Válido' : 'Formato incorrecto') : 'No encontrada',
+      placeholder: apiKey === 'tu_gemini_api_key' || apiKey === 'AIza...' ? 'Es placeholder' : 'Es real'
+    };
+    
+    addLog('info', `🔑 API Key detectada: ${apiKeyStatus.exists ? '✅ SÍ' : '❌ NO'}`, {
+      length: apiKeyStatus.length,
+      format: apiKeyStatus.format,
+      placeholder: apiKeyStatus.placeholder,
+      firstChars: apiKey ? `${apiKey.substring(0, 8)}...` : 'N/A',
+      file: 'Verificar archivo .env en raíz del proyecto'
+    });
+    
+    if (!apiKey || apiKey.trim() === '' || apiKey === 'tu_gemini_api_key' || apiKey === 'AIza...') {
+      const errorMsg = '❌ API Key de Gemini no configurada correctamente';
+      const errorDetails = {
+        problema: 'API Key faltante o es placeholder',
+        archivo: '.env (en la raíz del proyecto)',
+        variable: 'REACT_APP_GEMINI_API_KEY',
+        formato: 'REACT_APP_GEMINI_API_KEY="AIzaSy..."',
+        obtencion: 'https://makersuite.google.com/app/apikey',
+        solucion: 'Crea/actualiza el archivo .env con tu API Key real'
+      };
+      addLog('error', errorMsg, errorDetails);
       throw new Error(errorMsg);
     }
 
-    if (apiKey.length < 30) {
-      const errorMsg = 'API Key de Gemini parece inválida (muy corta)';
-      addLog('error', errorMsg);
+    if (apiKey.length < 35) {
+      const errorMsg = '❌ API Key parece inválida (muy corta)';
+      addLog('error', errorMsg, {
+        longitud: apiKey.length,
+        esperada: 'Entre 35-45 caracteres',
+        formato: 'Debe empezar con "AIza"'
+      });
       throw new Error(errorMsg);
     }
+
+    // Validar modelo
+    const validModels = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro', 'gemini-flash'];
+    addLog('info', `🤖 Modelo configurado: ${model}`, {
+      esValido: validModels.includes(model),
+      modelosDisponibles: validModels,
+      recomendado: 'gemini-1.5-flash'
+    });
 
     setIsLoading(true);
     setError(null);
-    addLog('success', `Configuración válida, iniciando llamada a ${model}...`);
-    addLog('info', `Prompt (${prompt.length} chars): "${prompt.substring(0, 80)}${prompt.length > 80 ? '...' : ''}"`);
+    addLog('success', `✅ Configuración válida - Iniciando llamada a ${model}`);
+    addLog('info', `📝 Prompt enviado (${prompt.length} caracteres)`, {
+      preview: `${prompt.substring(0, 100)}${prompt.length > 100 ? '...' : ''}`,
+      longitudTotal: prompt.length
+    });
 
     try {
+      // === PREPARAR REQUEST ===
       const requestBody = {
         contents: [{
           parts: [{ text: prompt }]
@@ -65,8 +104,14 @@ export const useGeminiApi = () => {
       };
 
       const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      addLog('info', `Endpoint: ${endpoint.replace(apiKey, 'KEY_OCULTA')}`);
+      addLog('info', '🌐 Enviando request a Google Gemini API...', {
+        endpoint: endpoint.replace(apiKey, 'KEY_OCULTA'),
+        modelo: model,
+        configuracion: requestBody.generationConfig,
+        seguridad: 'Filtros activados'
+      });
       
+      // === HACER LLAMADA A API ===
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -75,71 +120,155 @@ export const useGeminiApi = () => {
         body: JSON.stringify(requestBody)
       });
 
-      addLog('info', `Response HTTP: ${response.status} ${response.statusText}`);
+      const responseTime = Date.now() - startTime;
+      addLog('info', `📡 Respuesta HTTP recibida en ${responseTime}ms`, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: {
+          contentType: response.headers.get('content-type'),
+          contentLength: response.headers.get('content-length')
+        },
+        tiempoRespuesta: `${responseTime}ms`
+      });
 
+      // === MANEJAR ERRORES HTTP ===
       if (!response.ok) {
-        const errorData = await response.text();
-        addLog('error', `Error HTTP ${response.status}`, errorData);
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch {
+          errorData = await response.text();
+        }
+        
+        addLog('error', `🚨 Error HTTP ${response.status}: ${response.statusText}`, {
+          codigoHTTP: response.status,
+          mensaje: response.statusText,
+          respuestaCompleta: errorData,
+          endpoint: endpoint.replace(apiKey, 'KEY_OCULTA'),
+          posiblesSoluciones: {
+            400: 'Modelo inválido o request malformado',
+            401: 'API Key inválida o expirada',
+            403: 'API Key sin permisos o cuota excedida',
+            429: 'Rate limit excedido - espera un momento',
+            500: 'Error interno de Google - intenta más tarde'
+          }[response.status] || 'Error desconocido'
+        });
         
         if (response.status === 400) {
-          addLog('error', `Modelo '${model}' puede ser inválido. Modelos válidos: gemini-1.5-flash, gemini-1.5-pro, gemini-pro`);
-          throw new Error(`Error 400: Verificar modelo '${model}' y formato del request`);
+          throw new Error(`❌ Error 400: Verificar modelo '${model}' y formato del request`);
         } else if (response.status === 403) {
-          addLog('error', 'API Key rechazada por Google. Verifica que sea correcta y tenga permisos.');
-          throw new Error('Error 403: API Key inválida o sin permisos');
+          throw new Error('❌ Error 403: API Key inválida o sin permisos');
         } else if (response.status === 429) {
-          throw new Error('Error 429: Límite de rate excedido, intenta más tarde');
+          throw new Error('❌ Error 429: Límite de rate excedido, intenta más tarde');
         } else {
-          throw new Error(`Error ${response.status}: ${errorData}`);
+          throw new Error(`❌ Error ${response.status}: ${response.statusText}`);
         }
       }
 
+      // === PROCESAR RESPUESTA EXITOSA ===
       const data = await response.json();
-      addLog('success', 'Respuesta JSON recibida de Gemini');
-      addLog('info', `Candidatos recibidos: ${data.candidates?.length || 0}`);
-      
-      if (data.usageMetadata) {
-        addLog('info', `Tokens usados: ${JSON.stringify(data.usageMetadata)}`);
-      }
+      addLog('success', '🎉 Respuesta JSON válida recibida de Gemini');
+      addLog('info', '📊 Analizando respuesta de Gemini...', {
+        estructuraCompleta: data,
+        candidatos: data.candidates?.length || 0,
+        metadataUso: data.usageMetadata || 'No disponible'
+      });
 
+      // === VALIDAR ESTRUCTURA DE RESPUESTA ===
       if (!data.candidates || data.candidates.length === 0) {
-        addLog('error', 'Gemini retornó respuesta vacía (sin candidatos)');
-        addLog('warning', 'Posibles causas: prompt bloqueado por filtros, modelo sobrecargado');
-        throw new Error('Gemini no retornó candidatos de respuesta');
+        addLog('error', '❌ Gemini retornó respuesta vacía (sin candidatos)', {
+          respuestaCompleta: data,
+          posiblesCausas: [
+            'Prompt bloqueado por filtros de seguridad',
+            'Modelo sobrecargado temporalmente',
+            'Request malformado',
+            'Límites de contenido excedidos'
+          ]
+        });
+        throw new Error('❌ Gemini no retornó candidatos de respuesta');
       }
 
       const candidate = data.candidates[0];
+      addLog('info', '🔍 Validando candidato de respuesta...', {
+        finishReason: candidate.finishReason,
+        safetyRatings: candidate.safetyRatings,
+        tieneContenido: !!(candidate.content && candidate.content.parts)
+      });
       
       if (candidate.finishReason === 'SAFETY') {
-        addLog('warning', 'Respuesta bloqueada por filtros de seguridad de Google');
-        addLog('info', 'Intenta con un prompt más neutro o específico');
-        throw new Error('Contenido bloqueado por filtros de seguridad de Gemini');
+        addLog('warning', '⚠️ Respuesta bloqueada por filtros de seguridad de Google', {
+          razon: candidate.finishReason,
+          safetyRatings: candidate.safetyRatings,
+          sugerencia: 'Intenta con un prompt más neutro o específico'
+        });
+        throw new Error('⚠️ Contenido bloqueado por filtros de seguridad de Gemini');
       }
 
       if (!candidate.content || !candidate.content.parts || candidate.content.parts.length === 0) {
-        addLog('error', 'Estructura de respuesta de Gemini malformada');
-        addLog('info', `Respuesta recibida: ${JSON.stringify(candidate, null, 2)}`);
-        throw new Error('Respuesta de Gemini vacía o malformada');
+        addLog('error', '❌ Estructura de respuesta de Gemini malformada', {
+          candidatoCompleto: candidate,
+          contenidoRecibido: candidate.content,
+          partesEncontradas: candidate.content?.parts?.length || 0,
+          estructuraEsperada: {
+            content: {
+              parts: [{ text: 'respuesta aquí' }]
+            }
+          }
+        });
+        throw new Error('❌ Respuesta de Gemini vacía o malformada');
       }
 
+      // === EXTRAER TEXTO FINAL ===
       const generatedText = candidate.content.parts[0].text;
-      addLog('success', `✅ Texto generado exitosamente (${generatedText.length} caracteres)`);
+      const finalTime = Date.now() - startTime;
+      
+      addLog('success', `🎉 ¡Texto generado exitosamente en ${finalTime}ms!`, {
+        longitudTexto: generatedText.length,
+        tiempoTotal: `${finalTime}ms`,
+        finishReason: candidate.finishReason,
+        usageMetadata: data.usageMetadata,
+        preview: `${generatedText.substring(0, 150)}${generatedText.length > 150 ? '...' : ''}`,
+        caracteristicas: {
+          palabras: generatedText.split(' ').length,
+          lineas: generatedText.split('\n').length,
+          caracteres: generatedText.length
+        }
+      });
       
       return {
         text: generatedText,
         finishReason: candidate.finishReason,
         safetyRatings: candidate.safetyRatings,
-        usageMetadata: data.usageMetadata
+        usageMetadata: data.usageMetadata,
+        responseTime: finalTime
       };
 
     } catch (err) {
+      const finalTime = Date.now() - startTime;
       const errorMessage = err.message || 'Error desconocido al llamar Gemini';
-      addLog('error', `🔴 Error final: ${errorMessage}`);
+      
+      addLog('error', `🔴 Error final después de ${finalTime}ms: ${errorMessage}`, {
+        errorCompleto: err,
+        stackTrace: err.stack,
+        tiempoTranscurrido: `${finalTime}ms`,
+        configuracionUsada: {
+          modelo: model,
+          apiKeyLength: apiKey?.length,
+          endpoint: endpoint?.replace(apiKey, 'KEY_OCULTA')
+        },
+        debugging: {
+          verificarEnv: 'Revisar archivo .env en raíz del proyecto',
+          verificarModelo: `Modelo '${model}' debe ser válido`,
+          verificarApiKey: 'API Key debe empezar con AIza y tener 35+ chars',
+          verificarRed: 'Conexión a internet y firewall'
+        }
+      });
+      
       setError(errorMessage);
       throw err;
     } finally {
       setIsLoading(false);
-      addLog('info', 'Finalizando llamada a Gemini API');
+      addLog('info', '🏁 Finalizando llamada a Gemini API');
     }
   }, [addLog]);
 
@@ -164,18 +293,24 @@ Proporciona una versión mejorada que:
 Respuesta (máximo 200 palabras):`;
 
     try {
+      addLog('info', '📝 Iniciando mejora de idea narrativa con Gemini...');
       const result = await callGemini(prompt, {
         temperature: 0.8,
         maxOutputTokens: 300
       });
       
+      addLog('success', '✨ Idea mejorada exitosamente');
       return {
         improvedIdea: result.text.trim(),
         originalIdea: idea,
         metadata: result
       };
     } catch (error) {
-      addLog('error', 'Error al mejorar idea con Gemini', error.message);
+      addLog('error', '❌ Error al mejorar idea con Gemini', {
+        ideaOriginal: idea,
+        contexto: context,
+        errorDetalle: error.message
+      });
       throw error;
     }
   }, [callGemini, addLog]);
@@ -189,6 +324,7 @@ Respuesta (máximo 200 palabras):`;
     };
 
     try {
+      addLog('info', `🎭 Generando sugerencias de ${type}...`);
       const result = await callGemini(prompts[type] || prompts.narrative, {
         temperature: 0.9,
         maxOutputTokens: 200
@@ -196,7 +332,11 @@ Respuesta (máximo 200 palabras):`;
       
       return result.text.trim();
     } catch (error) {
-      addLog('error', `Error al sugerir ${type}`, error.message);
+      addLog('error', `❌ Error al sugerir ${type}`, {
+        tipo: type,
+        idea: idea,
+        errorDetalle: error.message
+      });
       throw error;
     }
   }, [callGemini, addLog]);
