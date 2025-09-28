@@ -54,7 +54,7 @@ export const useGeminiApi = () => {
       // === CONFIGURACIÓN OPTIMIZADA PARA GEMINI 2.5 FLASH ===
       const config = {
         temperature: options.temperature || 0.7,
-        maxOutputTokens: options.maxOutputTokens || 800, // Aumentado para Gemini 2.5
+        maxOutputTokens: options.maxOutputTokens || 1000, // Aumentado significativamente
         topP: options.topP || 0.95,
         topK: options.topK || 40,
         // Configuración específica para Gemini 2.5 Flash
@@ -84,27 +84,88 @@ export const useGeminiApi = () => {
         sdkVersion: '@google/genai v1.0.0'
       });
 
-      // === VALIDAR Y EXTRAER TEXTO ===
-      if (!response || !response.text) {
-        addLog('error', '❌ SDK retornó respuesta vacía', {
-          responseObject: response,
-          tipoResponse: typeof response,
-          propiedadesDisponibles: response ? Object.keys(response) : []
+      // === EXTRACCIÓN ROBUSTA DEL TEXTO CON MÚLTIPLES MÉTODOS ===
+      addLog('info', '🔍 Analizando estructura de respuesta del SDK...');
+      
+      let generatedText = '';
+      
+      // Método 1: Acceso directo (SDK oficial)
+      if (response && response.text) {
+        generatedText = response.text;
+        addLog('success', '✅ Texto extraído con response.text (método directo del SDK)');
+      }
+      // Método 2: Acceso manual a candidates (estructura raw)
+      else if (response && response.candidates && response.candidates.length > 0) {
+        const candidate = response.candidates[0];
+        
+        if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
+          // Buscar la primera parte que no sea "thought"
+          for (const part of candidate.content.parts) {
+            if (part.text && !part.thought) {
+              generatedText = part.text;
+              addLog('success', '✅ Texto extraído con candidates[0].content.parts[0].text (método manual)');
+              break;
+            }
+          }
+        }
+        
+        // Si aún no encontramos texto pero hay finishReason MAX_TOKENS
+        if (!generatedText && candidate.finishReason === 'MAX_TOKENS') {
+          addLog('warning', '⚠️ MAX_TOKENS detectado, reintentando con configuración optimizada...');
+          
+          // Reintentar con thinking deshabilitado y más tokens
+          return await callGemini(prompt, {
+            ...options,
+            maxOutputTokens: 1500,
+            disableThinking: true
+          });
+        }
+      }
+      // Método 3: Acceso a response raw completa
+      else if (response && typeof response === 'object') {
+        addLog('info', '🔍 Explorando estructura completa de respuesta...', {
+          responseKeys: Object.keys(response),
+          responseType: typeof response,
+          responseStructure: JSON.stringify(response, null, 2)
         });
-        throw new Error('❌ Respuesta vacía del SDK oficial');
+        
+        // Buscar texto en cualquier parte de la estructura
+        function findTextInObject(obj, path = '') {
+          if (typeof obj === 'string' && obj.length > 10) {
+            return obj;
+          }
+          if (typeof obj === 'object' && obj !== null) {
+            for (const [key, value] of Object.entries(obj)) {
+              const result = findTextInObject(value, path + '.' + key);
+              if (result) {
+                addLog('success', `✅ Texto encontrado en: ${path}.${key}`);
+                return result;
+              }
+            }
+          }
+          return null;
+        }
+        
+        generatedText = findTextInObject(response);
       }
 
-      const generatedText = response.text.trim();
-      
-      if (!generatedText || generatedText === '') {
-        addLog('error', '❌ Texto generado está vacío', {
+      // === VALIDACIÓN FINAL DEL TEXTO EXTRAÍDO ===
+      if (!generatedText || generatedText.trim() === '') {
+        addLog('error', '❌ No se pudo extraer texto de la respuesta del SDK', {
           responseCompleta: response,
-          longitudTexto: generatedText.length
+          candidatesLength: response?.candidates?.length || 0,
+          finishReason: response?.candidates?.[0]?.finishReason || 'N/A',
+          contentStructure: response?.candidates?.[0]?.content || 'N/A',
+          possibleSolutions: [
+            'Verificar estructura de respuesta del SDK',
+            'Actualizar @google/genai a versión más reciente',
+            'Probar con diferentes parámetros de configuración'
+          ]
         });
-        throw new Error('❌ Gemini 2.5 retornó texto vacío');
+        throw new Error('❌ No se pudo extraer texto de Gemini 2.5 Flash');
       }
       
-      addLog('success', `🎯 ¡Texto generado exitosamente!`, {
+      addLog('success', `🎯 ¡Texto extraído exitosamente!`, {
         longitudTexto: generatedText.length,
         tiempoTotal: `${responseTime}ms`,
         preview: `${generatedText.substring(0, 120)}${generatedText.length > 120 ? '...' : ''}`,
@@ -112,11 +173,12 @@ export const useGeminiApi = () => {
           palabras: generatedText.split(' ').length,
           lineas: generatedText.split('\n').length,
           caracteres: generatedText.length
-        }
+        },
+        metodoExtraccion: 'SDK oficial'
       });
       
       return {
-        text: generatedText,
+        text: generatedText.trim(),
         responseTime: responseTime,
         model: model,
         sdk: '@google/genai'
@@ -126,8 +188,7 @@ export const useGeminiApi = () => {
       const finalTime = Date.now() - startTime;
       let errorMessage = err.message || 'Error desconocido al llamar Gemini 2.5';
       
-      // Análisis específico del error
-      let errorAnalysis = {
+      addLog('error', `🔴 Error final: ${errorMessage}`, {
         tiempoTranscurrido: `${finalTime}ms`,
         errorOriginal: err.toString(),
         configuracionUsada: {
@@ -135,21 +196,8 @@ export const useGeminiApi = () => {
           apiKeyLength: apiKey?.length,
           sdkUsado: '@google/genai v1.0.0'
         }
-      };
-
-      // Errores específicos del SDK oficial
-      if (err.message?.includes('API key')) {
-        errorMessage = '🔑 Error de API Key con SDK oficial';
-        errorAnalysis.solucion = 'Verificar REACT_APP_GEMINI_API_KEY en archivo .env';
-      } else if (err.message?.includes('model')) {
-        errorMessage = '🤖 Error de modelo con Gemini 2.5';
-        errorAnalysis.solucion = 'Verificar que gemini-2.5-flash esté disponible en tu región';
-      } else if (err.message?.includes('quota') || err.message?.includes('limit')) {
-        errorMessage = '📊 Límite de cuota o rate excedido';
-        errorAnalysis.solucion = 'Esperar un momento o verificar cuota de API';
-      }
+      });
       
-      addLog('error', `🔴 Error final: ${errorMessage}`, errorAnalysis);
       setError(errorMessage);
       throw err;
     } finally {
@@ -161,14 +209,21 @@ export const useGeminiApi = () => {
   // Función específica para mejorar ideas narrativas con Gemini 2.5 Flash
   const improveIdea = useCallback(async (idea, context = {}) => {
     // Prompt optimizado para Gemini 2.5 Flash
-    const prompt = `Como experto en narrativa, mejora esta idea:\n\n"${idea}"\n\n${context.targetAudience ? `Audiencia: ${context.targetAudience}\n` : ''}${context.keyElements ? `Elementos: ${context.keyElements}\n` : ''}\nDevuelve 2 partes separadas por <break>:\n1. Idea mejorada (máximo 50 palabras)\n2. Lista de elementos clave`;
+    const prompt = `Como experto en narrativa, mejora esta idea:
+
+"${idea}"
+
+${context.targetAudience ? `Audiencia: ${context.targetAudience}\n` : ''}${context.keyElements ? `Elementos: ${context.keyElements}\n` : ''}
+Devuelve 2 partes separadas por <break>:
+1. Idea mejorada (máximo 50 palabras)
+2. Lista de elementos clave`;
 
     try {
       addLog('info', '✨ Mejorando idea con Gemini 2.5 Flash...');
       const result = await callGemini(prompt, {
         temperature: 0.8,
-        maxOutputTokens: 400,
-        disableThinking: false // Permitir thinking para mejor calidad
+        maxOutputTokens: 600,
+        disableThinking: true // Velocidad para ideas rápidas
       });
       
       addLog('success', '🎯 Idea mejorada exitosamente con Gemini 2.5');
@@ -199,7 +254,7 @@ export const useGeminiApi = () => {
       addLog('info', `🎭 Generando sugerencias de ${type} con Gemini 2.5...`);
       const result = await callGemini(prompts[type] || prompts.narrative, {
         temperature: 0.9,
-        maxOutputTokens: 300,
+        maxOutputTokens: 400,
         disableThinking: true // Velocidad para sugerencias
       });
       
