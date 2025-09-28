@@ -1,11 +1,24 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useLog } from '../../context/LogContext';
-import { Terminal, X, ChevronUp, ChevronDown, Trash2, Copy } from 'lucide-react';
+import { Terminal, X, ChevronUp, ChevronDown, Trash2, Copy, Filter } from 'lucide-react';
 import Button from './Button';
 
 const LogPanel = () => {
   const { logs, clearLogs, isVisible, toggleVisibility } = useLog();
   const [isExpanded, setIsExpanded] = useState(false);
+  const [filterLevel, setFilterLevel] = useState('all'); // all, error, warning, success, info
+  const [isPaused, setIsPaused] = useState(false);
+  
+  // Filtrar logs según el nivel seleccionado
+  const filteredLogs = useMemo(() => {
+    if (filterLevel === 'all') return logs;
+    return logs.filter(log => log.type === filterLevel);
+  }, [logs, filterLevel]);
+  
+  // Solo logs importantes (errores y warnings)
+  const importantLogs = useMemo(() => {
+    return logs.filter(log => log.type === 'error' || log.type === 'warning');
+  }, [logs]);
 
   const getLogIcon = (type) => {
     switch (type) {
@@ -19,22 +32,30 @@ const LogPanel = () => {
 
   const getLogColor = (type) => {
     switch (type) {
-      case 'error': return 'text-red-600 bg-red-50';
-      case 'warning': return 'text-yellow-600 bg-yellow-50';
-      case 'success': return 'text-green-600 bg-green-50';
-      case 'info': return 'text-blue-600 bg-blue-50';
-      default: return 'text-gray-600 bg-gray-50';
+      case 'error': return 'text-red-600 bg-red-50 border-red-500';
+      case 'warning': return 'text-yellow-600 bg-yellow-50 border-yellow-500';
+      case 'success': return 'text-green-600 bg-green-50 border-green-500';
+      case 'info': return 'text-blue-600 bg-blue-50 border-blue-500';
+      default: return 'text-gray-600 bg-gray-50 border-gray-500';
     }
   };
 
   const copyLogs = () => {
-    const logText = logs.map(log => 
+    const logText = filteredLogs.map(log => 
       `[${log.timestamp.toLocaleTimeString()}] ${log.type.toUpperCase()}: ${log.message}${log.details ? '\nDetails: ' + JSON.stringify(log.details, null, 2) : ''}`
     ).join('\n\n');
     
     navigator.clipboard.writeText(logText).then(() => {
-      // Podríamos agregar una notificación aquí
+      // Log copiado
     });
+  };
+  
+  const getFilterButtonClass = (level) => {
+    return `px-2 py-1 text-xs rounded transition-colors ${
+      filterLevel === level 
+        ? 'bg-blue-100 text-blue-800 border border-blue-300' 
+        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+    }`;
   };
 
   if (!isVisible) {
@@ -44,10 +65,16 @@ const LogPanel = () => {
           onClick={toggleVisibility}
           variant="secondary"
           size="sm"
-          className="shadow-lg"
+          className={`shadow-lg ${
+            importantLogs.length > 0 ? 'bg-red-100 border-red-300 text-red-800 animate-pulse' : ''
+          }`}
           leftIcon={<Terminal className="w-4 h-4" />}
         >
-          Mostrar Logs ({logs.length})
+          {importantLogs.length > 0 ? (
+            <>❌ {importantLogs.length} Error{importantLogs.length > 1 ? 'es' : ''}</>
+          ) : (
+            <>Logs ({logs.length})</>
+          )}
         </Button>
       </div>
     );
@@ -59,19 +86,34 @@ const LogPanel = () => {
       <div className="flex items-center justify-between bg-gray-800 text-white px-4 py-2 rounded-tl-lg">
         <div className="flex items-center space-x-2">
           <Terminal className="w-4 h-4" />
-          <span className="font-medium text-sm">Procesos en Vivo</span>
+          <span className="font-medium text-sm">Logs</span>
           <span className="bg-gray-600 text-xs px-2 py-0.5 rounded-full">
-            {logs.length}
+            {filteredLogs.length}/{logs.length}
           </span>
+          {importantLogs.length > 0 && (
+            <span className="bg-red-600 text-xs px-2 py-0.5 rounded-full animate-pulse">
+              {importantLogs.length} ❌
+            </span>
+          )}
         </div>
         
         <div className="flex items-center space-x-1">
           <button
             onClick={copyLogs}
             className="p-1 hover:bg-gray-700 rounded"
-            title="Copiar logs"
+            title="Copiar logs filtrados"
           >
             <Copy className="w-3 h-3" />
+          </button>
+          
+          <button
+            onClick={() => setIsPaused(!isPaused)}
+            className={`p-1 hover:bg-gray-700 rounded ${
+              isPaused ? 'bg-yellow-600' : ''
+            }`}
+            title={isPaused ? 'Reanudar logs' : 'Pausar logs'}
+          >
+            {isPaused ? '⏸️' : '▶️'}
           </button>
           
           <button
@@ -99,6 +141,42 @@ const LogPanel = () => {
           </button>
         </div>
       </div>
+      
+      {/* Filter Controls */}
+      <div className="bg-gray-100 px-4 py-2 flex items-center space-x-2 border-b">
+        <Filter className="w-3 h-3 text-gray-500" />
+        <span className="text-xs text-gray-600">Filtrar:</span>
+        <button
+          onClick={() => setFilterLevel('all')}
+          className={getFilterButtonClass('all')}
+        >
+          Todos
+        </button>
+        <button
+          onClick={() => setFilterLevel('error')}
+          className={getFilterButtonClass('error')}
+        >
+          ❌ Errores
+        </button>
+        <button
+          onClick={() => setFilterLevel('warning')}
+          className={getFilterButtonClass('warning')}
+        >
+          ⚠️ Avisos
+        </button>
+        <button
+          onClick={() => setFilterLevel('success')}
+          className={getFilterButtonClass('success')}
+        >
+          ✅ Éxito
+        </button>
+        <button
+          onClick={() => setFilterLevel('info')}
+          className={getFilterButtonClass('info')}
+        >
+          💬 Info
+        </button>
+      </div>
 
       {/* Content */}
       <div 
@@ -108,31 +186,33 @@ const LogPanel = () => {
         }`}
         style={{ maxHeight: isExpanded ? '24rem' : '12rem' }}
       >
-        {logs.length === 0 ? (
+        {filteredLogs.length === 0 ? (
           <div className="p-4 text-center text-gray-500 text-sm">
-            💬 No hay logs aún...
+            {filterLevel === 'all' 
+              ? '💬 No hay logs aún...' 
+              : `No hay logs de tipo "${filterLevel}"`
+            }
           </div>
         ) : (
           <div className="p-2 space-y-1">
-            {logs.map((log) => (
+            {filteredLogs.slice().reverse().map((log) => (
               <div
                 key={log.id}
-                className={`p-2 rounded text-xs border-l-2 ${
-                  log.type === 'error' ? 'border-red-500' :
-                  log.type === 'warning' ? 'border-yellow-500' :
-                  log.type === 'success' ? 'border-green-500' :
-                  'border-blue-500'
-                } ${getLogColor(log.type)}`}
+                className={`p-2 rounded text-xs border-l-2 ${getLogColor(log.type)}`}
               >
                 <div className="flex items-start space-x-2">
-                  <span className="text-sm">{getLogIcon(log.type)}</span>
+                  <span className="text-sm flex-shrink-0">{getLogIcon(log.type)}</span>
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate">
-                      [{log.timestamp.toLocaleTimeString()}] {log.message}
+                    <div className="font-medium">
+                      <span className="text-gray-500 text-xs">
+                        [{log.timestamp.toLocaleTimeString()}]
+                      </span>
+                      {' '}
+                      <span className="select-text">{log.message}</span>
                     </div>
                     {log.details && (
                       <div className="mt-1 text-xs opacity-75 max-h-20 overflow-y-auto">
-                        <pre className="whitespace-pre-wrap font-mono">
+                        <pre className="whitespace-pre-wrap font-mono select-text">
                           {typeof log.details === 'string' ? log.details : JSON.stringify(log.details, null, 2)}
                         </pre>
                       </div>
