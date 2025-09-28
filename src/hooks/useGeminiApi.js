@@ -186,7 +186,7 @@ export const useGeminiApi = () => {
 
     } catch (err) {
       const finalTime = Date.now() - startTime;
-      let errorMessage = err.message || 'Error desconocido al llamar Gemini 2.5';
+      const errorMessage = err.message || 'Error desconocido al llamar Gemini 2.5';
       
       addLog('error', `🔴 Error final: ${errorMessage}`, {
         tiempoTranscurrido: `${finalTime}ms`,
