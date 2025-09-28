@@ -41,6 +41,7 @@ const Phase1 = () => {
     }
   }, [currentProject, setCurrentPhase, addLog]);
   
+  // FUNCIÓN CRÍTICA: Manejar cambios en TODOS los campos sin restricciones
   const handleInputChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     setHasUnsavedChanges(true);
@@ -229,7 +230,7 @@ Crea una versión completamente nueva en este formato:
         </div>
         <h1 className="text-3xl font-bold text-gray-900 mb-4">Fase 1: La Idea Principal</h1>
         <p className="text-lg text-gray-600">
-          Comparte tu idea inicial. Gemini 2.5 Flash te ayudará a refinarla y completarla.
+          Comparte tu idea inicial. Gemini 2.5 Flash te ayudará a refinarla. <strong>Todos los campos son editables</strong>.
         </p>
       </div>
       
@@ -263,12 +264,12 @@ Crea una versión completamente nueva en este formato:
           </div>
         )}
         
-        {/* Campo Principal: Tu Idea */}
+        {/* Campo Principal: Tu Idea - COMPLETAMENTE EDITABLE */}
         <div>
           <label className="block text-sm font-medium text-gray-900 mb-3">
             <span className="flex items-center">
               <Sparkles className="w-4 h-4 mr-2 text-primary-500" />
-              Tu Idea (requerido)
+              Tu Idea (requerido) - ✏️ <em>Siempre editable</em>
             </span>
           </label>
           <TextArea
@@ -278,6 +279,8 @@ Crea una versión completamente nueva en este formato:
             rows={4}
             className={`w-full transition-all duration-200 ${isEditing ? 'ring-2 ring-blue-500 border-blue-300' : ''}`}
             required
+            disabled={false}  // ✅ SIEMPRE EDITABLE
+            readOnly={false}  // ✅ NUNCA READONLY
           />
           
           {/* Botón Generar con IA */}
@@ -313,20 +316,22 @@ Crea una versión completamente nueva en este formato:
           )}
         </div>
         
-        {/* Idea Mejorada por IA */}
+        {/* Idea Mejorada por IA - COMPLETAMENTE EDITABLE */}
         {showImprovement && (
           <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-xl p-6">
             <h3 className="font-semibold text-purple-900 mb-3 flex items-center">
               <Sparkles className="w-5 h-5 mr-2" />
-              Versión Mejorada por Gemini 2.5 Flash
+              Versión Mejorada por Gemini 2.5 Flash - ✏️ <em>Editable libremente</em>
             </h3>
             <div className="bg-white rounded-lg p-4 border border-purple-100">
               <TextArea
                 value={formData.improvedIdea}
                 onChange={(e) => handleInputChange('improvedIdea', e.target.value)}
-                className={`w-full border-0 resize-none bg-transparent ${isEditing ? 'ring-2 ring-purple-300' : ''}`}
-                rows={3}
-                placeholder="Idea mejorada aparecerá aquí..."
+                className={`w-full border-0 resize-none bg-transparent focus:ring-2 focus:ring-purple-300 ${isEditing ? 'ring-2 ring-purple-300' : ''}`}
+                rows={4}
+                placeholder="Idea mejorada aparecerá aquí... También puedes editarla libremente"
+                disabled={false}  // ✅ COMPLETAMENTE EDITABLE
+                readOnly={false}  // ✅ NUNCA READONLY
               />
             </div>
             <div className="mt-4 flex flex-wrap gap-3">
@@ -358,16 +363,15 @@ Crea una versión completamente nueva en este formato:
           </div>
         )}
         
-        {/* Campos Editables Siempre */}
+        {/* Campos Editables SIEMPRE - Sin restricciones */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label className="block text-sm font-medium text-gray-900 mb-3">
               <span className="flex items-center justify-between">
                 <span className="flex items-center">
                   <Target className="w-4 h-4 mr-2 text-emerald-500" />
-                  Público Objetivo
+                  Público Objetivo - ✏️ <em>Libre edición</em>
                 </span>
-                <span className="text-xs text-gray-500">(completado por IA)</span>
               </span>
             </label>
             <TextArea
@@ -376,6 +380,8 @@ Crea una versión completamente nueva en este formato:
               placeholder="Ej: Jóvenes de 18-25 años interesados en tecnología y ciencia ficción"
               rows={3}
               className={`w-full transition-all duration-200 ${isEditing ? 'ring-2 ring-emerald-300 border-emerald-300' : ''}`}
+              disabled={false}  // ✅ SIEMPRE EDITABLE
+              readOnly={false}  // ✅ NUNCA READONLY
             />
           </div>
           
@@ -384,9 +390,8 @@ Crea una versión completamente nueva en este formato:
               <span className="flex items-center justify-between">
                 <span className="flex items-center">
                   <Key className="w-4 h-4 mr-2 text-amber-500" />
-                  Elementos Clave
+                  Elementos Clave - ✏️ <em>Libre edición</em>
                 </span>
-                <span className="text-xs text-gray-500">(completado por IA)</span>
               </span>
             </label>
             <TextArea
@@ -395,9 +400,11 @@ Crea una versión completamente nueva en este formato:
               placeholder="Ej: memoria, identidad, tecnología, traición, descubrimiento"
               rows={3}
               className={`w-full transition-all duration-200 ${isEditing ? 'ring-2 ring-amber-300 border-amber-300' : ''}`}
+              disabled={false}  // ✅ SIEMPRE EDITABLE
+              readOnly={false}  // ✅ NUNCA READONLY
             />
             <p className="text-xs text-gray-500 mt-2">
-              💡 Separados por comas. Se completan automáticamente con IA si están vacíos.
+              💡 Separados por comas. Puedes editarlos libremente en cualquier momento.
             </p>
           </div>
         </div>
@@ -421,6 +428,19 @@ Crea una versión completamente nueva en este formato:
               ⚠️ Cambios sin guardar
             </span>
           )}
+        </div>
+        
+        {/* Mensaje de editabilidad */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <Edit3 className="w-5 h-5 text-blue-600 mr-2" />
+            <div>
+              <span className="text-blue-800 font-medium">Todos los campos son editables</span>
+              <p className="text-blue-600 text-sm mt-1">
+                Puedes modificar cualquier campo en cualquier momento, incluso después de que la IA haya generado contenido.
+              </p>
+            </div>
+          </div>
         </div>
       </Card>
       
@@ -447,7 +467,7 @@ Crea una versión completamente nueva en este formato:
             size="lg"
             rightIcon={<ArrowRight className="w-5 h-5" />}
             onClick={handleContinue}
-            disabled={!formData.idea.trim() || hasUnsavedChanges}
+            disabled={!formData.idea.trim()}
           >
             Continuar a Fase 2
           </Button>
