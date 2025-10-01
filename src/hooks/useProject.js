@@ -100,6 +100,21 @@ const projectReducer = (state, action) => {
         completedPhases: action.payload.completedPhases || []
       };
     
+    case 'RESET_CURRENT_PROJECT_PHASE_DATA':
+      return {
+        ...state,
+        currentProject: state.currentProject ? {
+          ...state.currentProject,
+          phase1Data: null,
+          phase2Data: null,
+          phase3Data: null,
+          phase4Data: null,
+          coherenceData: null
+        } : null,
+        currentPhase: 1,
+        completedPhases: []
+      };
+    
     default:
       return state;
   }
@@ -144,6 +159,8 @@ export const ProjectProvider = ({ children }) => {
       type: 'SET_PROJECT_TYPE', 
       payload: { type, seriesData } 
     });
+    // Resetear los datos de fase del proyecto actual al cambiar el tipo de proyecto
+    resetCurrentProjectPhaseData();
   };
 
   const createProject = (projectData = {}) => {
@@ -194,6 +211,10 @@ export const ProjectProvider = ({ children }) => {
     dispatch({ type: 'SET_ERROR', payload: error });
   };
 
+  const resetCurrentProjectPhaseData = () => {
+    dispatch({ type: 'RESET_CURRENT_PROJECT_PHASE_DATA' });
+  };
+
   const value = {
     ...state,
     setProjectType,
@@ -208,7 +229,8 @@ export const ProjectProvider = ({ children }) => {
     getSeriesProjects,
     setLoading,
     setError,
-    loadProjectsFromStorage
+    loadProjectsFromStorage,
+    resetCurrentProjectPhaseData
   };
 
   return (
